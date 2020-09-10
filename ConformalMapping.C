@@ -1,9 +1,9 @@
 ////
-Double_t lowMomLimit = 389;
-Double_t highMomLimit = 392;
-Int_t findTrackLimit = 4;
+Double_t lowMomLimit = 370;
+Double_t highMomLimit = 415;
+Int_t findTrackLimit = 25;
 Float_t deltaRsquared = 5e4;
-Int_t conformalMappingThreshold = 15;
+Int_t conformalMappingThreshold = 20;
 Double_t search_sigma = 1.2;
 TH1F *hDelta = new TH1F("hDelta", "hDelta", 1000, -1e5, 1e5);
 ////
@@ -53,7 +53,6 @@ void FindCenter(std::vector<Float_t> &trackX, std::vector<Float_t> &trackY, std:
 	Int_t nfound = s->Search(h->ProjectionY(), search_sigma, "", 0.05);
 	Double_t *ypeaks = s->GetPositionX();
 	Double_t xp = ypeaks[0];
-	std::cout << xp << " " << nfound << std::endl;
 	TH1D *h_px = h->ProjectionX("h_px", h->ProjectionX()->GetXaxis()->FindBin(xp), h->ProjectionX()->GetXaxis()->FindBin(xp) );
 	xs->Search(h_px, search_sigma, "", 0.05);
 	Double_t *xpeaks = xs->GetPositionX();
@@ -72,7 +71,7 @@ void FindCenter(std::vector<Float_t> &trackX, std::vector<Float_t> &trackY, std:
 	delete h_px;
 	delete ypeaks;
 	delete xpeaks;
-	std::cout << "center: (" << Xc << ", " << Yc << ") radius: " << TMath::Sqrt(Xc*Xc + Yc*Yc) << " search_sigma: " << search_sigma << std::endl;
+	std::cout << "center: (" << Xc << ", " << Yc << ") radius: " << TMath::Sqrt(Xc*Xc + Yc*Yc) << std::endl;
 	if(Xc!=0 && Yc!=0) {
 		//push to vector and remove track hits only if nonzero track center is found
 		vecXc.push_back(Xc);
