@@ -1,13 +1,14 @@
 ////
-Double_t lowMomLimit = 370;
-Double_t highMomLimit = 415;
-Int_t findTrackLimit = 25;
-Float_t deltaRsquared = 5e4;
-Int_t conformalMappingThreshold = 20;
-Double_t search_sigma = 1.2;
+Double_t lowMomLimit = 370; //artificial limiters for testing the code
+Double_t highMomLimit = 500; //artificial
+Int_t findTrackLimit = 2; //limit number of tracks to find
+Float_t deltaRsquared = 5e4; //distance of track hit from track circle, should be tuned
+Int_t conformalMappingThreshold = 20; //number will changed if you change the histogram binning, this is to remove noise in the u-v space
+Double_t search_sigma = 1.2; //TSpectrum sigma
 TH1F *hDelta = new TH1F("hDelta", "hDelta", 1000, -1e5, 1e5);
 ////
-void FindCenter(std::vector<Float_t> &trackX, std::vector<Float_t> &trackY, std::vector<Float_t> &vecXc, std::vector<Float_t> &vecYc) {
+Int_t tId = 1;
+void FindCenter(std::vector<Int_t> &trackId, std::vector<Float_t> &trackX, std::vector<Float_t> &trackY, std::vector<Float_t> &trackZ, std::vector<Float_t> &vecXc, std::vector<Float_t> &vecYc) {
 	TFile *f = new TFile("data.root", "READ");
 	TTree *tree = (TTree *)f->Get("tree");
 
@@ -28,7 +29,7 @@ void FindCenter(std::vector<Float_t> &trackX, std::vector<Float_t> &trackY, std:
 		if(std::find(trackX.begin(), trackX.end(), position->Z() - 7650 ) != trackX.end() && std::find(trackY.begin(), trackY.end(), position->Y() ) != trackY.end()) continue;
 		if(momentumMag < lowMomLimit) continue; 
 		if(momentumMag > highMomLimit) continue; 
-		if(particleName->compare("proton") !=0) continue;
+//		if(particleName->compare("proton") !=0) continue;
 		Float_t x = position->Z() - 7650;
 		Float_t y = position->Y();
 		//Float_t z = position->X() - 6450;
@@ -48,8 +49,8 @@ void FindCenter(std::vector<Float_t> &trackX, std::vector<Float_t> &trackY, std:
 		}
 	}
 
-	TSpectrum *s = new TSpectrum(10);
-	TSpectrum *xs = new TSpectrum(10);
+	TSpectrum *s = new TSpectrum(20);
+	TSpectrum *xs = new TSpectrum(20);
 	Int_t nfound = s->Search(h->ProjectionY(), search_sigma, "", 0.05);
 	Double_t *ypeaks = s->GetPositionX();
 	Double_t xp = ypeaks[0];
@@ -82,29 +83,34 @@ void FindCenter(std::vector<Float_t> &trackX, std::vector<Float_t> &trackY, std:
 			tree->GetEntry(j);
 			if(momentumMag < lowMomLimit) continue; 
 			if(momentumMag > highMomLimit) continue; 
-			if(particleName->compare("proton") !=0) continue;
+//			if(particleName->compare("proton") !=0) continue;
 			Float_t x = position->Z() - 7650;
 			Float_t y = position->Y();
+			Float_t z = position->X() - 6450;
 			TVector3 v1(x, y, 0);
 			TVector3 cprod = v1.Cross(v2);
 			//check vicinity and direction of curl (positive or negative charged particles)
 			hDelta->Fill((x-Xc)*(x-Xc) + (y-Yc)*(y-Yc) - Xc*Xc - Yc*Yc);
 			if(abs((x-Xc)*(x-Xc) + (y-Yc)*(y-Yc) - Xc*Xc - Yc*Yc) < deltaRsquared && cprod.Z() >= 0) {
 				//push points in the vicinity of the circle into the vector to be excluded in the next iteration
+				trackId.push_back(tId);
 				trackX.push_back(x);
 				trackY.push_back(y);
+				trackZ.push_back(z);
 			}
 		}
 	}
+	++tId;
 }
 void ConformalMapping() {
-	std::vector<Float_t> trackX, trackY;
+	std::vector<Int_t> trackId;
+	std::vector<Float_t> trackX, trackY, trackZ;
 	std::vector<Float_t> Xc, Yc;
 
 	Int_t counter=0;
 	Int_t prev_track_size = 0;
 	while(counter < findTrackLimit) {
-		FindCenter(trackX, trackY, Xc, Yc);
+		FindCenter(trackId, trackX, trackY, trackZ, Xc, Yc);
 		++counter;
 	}
 
@@ -127,7 +133,7 @@ void ConformalMapping() {
 		tree->GetEntry(j);
 		if(momentumMag < lowMomLimit) continue; 
 		if(momentumMag > highMomLimit) continue; 
-		if(particleName->compare("proton") !=0) continue;
+//		if(particleName->compare("proton") !=0) continue;
 		Float_t x = position->Z() - 7650;
 		Float_t y = position->Y();
 		if(std::find(trackX.begin(), trackX.end(), position->Z() - 7650 ) != trackX.end() && std::find(trackY.begin(), trackY.end(), position->Y() ) != trackY.end()) {
@@ -167,10 +173,37 @@ void ConformalMapping() {
 		TLatex *numbering = new TLatex(Xc[z], Yc[z], Form("%d", z) );
 		numbering->Draw("SAME");
 	}
-	c->Draw();
 	c->SaveAs("results.pdf");
 
-	TCanvas *delta = new TCanvas("delta", "delta");
-	hDelta->Draw();
-	delta->Draw();
+	/////////// output to ROOT file for GENFIT ///////////////
+
+	TFile * fOutput = new TFile("analysis.root", "RECREATE");
+	Int_t iId;
+	Float_t fX;
+	Float_t fY;
+	Float_t fZ;
+	Float_t fPhi;
+	Float_t fTheta;
+	Float_t fMag;
+	TTree * cdc = new TTree("cdc", "cdc");
+	cdc->Branch("trackId", &iId);
+	cdc->Branch("x", &fX);
+	cdc->Branch("y", &fY);
+	cdc->Branch("z", &fZ);
+	cdc->Branch("phi", &fPhi);
+	cdc->Branch("theta", &fTheta);
+	cdc->Branch("mag", &fMag);
+
+	for(Int_t i = 0; i < trackId.size(); ++i) {
+		iId = trackId[i];
+		fX = trackX[i];
+		fY = trackY[i];
+		fZ = trackZ[i];
+		TVector3 v(fX, fY, fZ);
+		fPhi = v.Phi();
+		fTheta = v.Theta();
+		fMag = 1;
+		cdc->Fill();
+	}
+	fOutput->Write();
 }
