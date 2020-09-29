@@ -1,9 +1,9 @@
 ////
-Double_t lowMomLimit = 103; //artificial limiters for testing the code
-Double_t highMomLimit = 1000; //artificial
-Int_t findTrackLimit = 34; //limit number of tracks to find
-Double_t search_sigma = 3; //TSpectrum sigma
-TH1F *hDelta = new TH1F("hDelta", "hDelta; #Delta r^{2} [mm^{2}]", 1000, -1e5, 1e5);
+Double_t lowMomLimit = .004; //artificial limiters for testing the code
+Double_t highMomLimit = .1; //artificial
+Int_t findTrackLimit = 20; //limit number of tracks to find
+Double_t search_sigma = 12; //TSpectrum sigma
+TH1F *hDelta = new TH1F("hDelta", "hDelta; #Delta r^{2} [mm^{2}]", 500, -5e4, 5e4);
 TH1F *hEstMom = new TH1F("hEstMom", "hEstMom;p [MeV]", 100, 0, 1000);
 TH1I *hHitsPerTrack = new TH1I("hHitsPerTrack", "hHitsPerTrack;HitsPerTrack;Count", 100, 0, 100);
 ////
@@ -19,31 +19,28 @@ void FindCenter(
 	std::vector<Float_t> &vecYc
 ) {
 	TFile *f = new TFile(filename, "READ");
-	TTree *tree = (TTree *)f->Get("tree");
+	TTree *tree = (TTree *)f->Get("cdc");
 
 	Int_t eventId;
 	TLorentzVector *position = new TLorentzVector(0., 0., 0., 0.);
-	Double_t momentumMag;
-	std::string *particleName = new std::string("");
-	tree->SetBranchAddress("eventId", &eventId);
-	tree->SetBranchAddress("position", &position);
-	tree->SetBranchAddress("momentumMag", &momentumMag);
-	tree->SetBranchAddress("particleName", &particleName);
+	Double_t E;
+	tree->SetBranchAddress("pos", &position);
+	tree->SetBranchAddress("E", &E);
 
 	TH2F *h = new TH2F("h", "h;u;v", 2000, -2000, 2000, 2000, -2000, 2000);
 	for(int j=0; j < tree->GetEntries(); ++j) {
 		tree->GetEntry(j);
 		//if entry is found in vector, skip
 		if(std::find(trackX.begin(), trackX.end(), position->Z() - 7650 ) != trackX.end() && std::find(trackY.begin(), trackY.end(), position->Y() ) != trackY.end()) continue;
-		if(momentumMag < lowMomLimit) continue; 
-		if(momentumMag > highMomLimit) continue; 
+		if(E < lowMomLimit) continue; 
+		if(E > highMomLimit) continue; 
 		Float_t x = position->Z() - 7650;
 		Float_t y = position->Y();
-		for(Int_t u=-2000; u < 2000; u = u+2) {
+		for(Int_t u=-2000; u < 2000; ++u) {
 			//Hough transform
 			Float_t v = -(x/y)*u + (x*x + y*y)/(2*y);
 			//remove points within inner radius, however, this removes low momentum tracks
-//			if(u*u + v*v < 496*496 ) continue;
+			//if(u*u + v*v < 496*496 ) continue;
 			h->Fill(u, v);
 		}
 	}
@@ -88,8 +85,8 @@ void FindCenter(
 		TVector3 v2(Xc, Yc, 0);
 		for(int j=0; j < tree->GetEntries(); ++j) {
 			tree->GetEntry(j);
-			if(momentumMag < lowMomLimit) continue; 
-			if(momentumMag > highMomLimit) continue; 
+			if(E < lowMomLimit) continue; 
+			if(E > highMomLimit) continue; 
 			Float_t x = position->Z() - 7650;
 			Float_t y = position->Y();
 			Float_t z = position->X() - 6450;
@@ -98,27 +95,36 @@ void FindCenter(
 			//check vicinity and direction of curl (positive or negative charged particles)
 			hDelta->Fill((x-Xc)*(x-Xc) + (y-Yc)*(y-Yc) - Xc*Xc - Yc*Yc);
 		}
-		TF1 *fit = new TF1("fit", "gaus", -10e3, 10e3);
+		TF1 *fit = new TF1("fit", "gaus", -5e3, 5e3);
 		hDelta->Fit("fit", "SR");
 		Float_t meanRsquared = fit->GetParameter(1);
 		Float_t deltaRsquared = fit->GetParameter(2) * 3;
 		for(int j=0; j < tree->GetEntries(); ++j) {
 			tree->GetEntry(j);
-			if(momentumMag < lowMomLimit) continue; 
-			if(momentumMag > highMomLimit) continue; 
+			if(E < lowMomLimit) continue; 
+			if(E > highMomLimit) continue; 
 			Float_t x = position->Z() - 7650;
 			Float_t y = position->Y();
 			Float_t z = position->X() - 6450;
 			TVector3 v1(x, y, 0);
 			TVector3 cprod = v1.Cross(v2);
 			//check vicinity and direction of curl (positive or negative charged particles)
-			hDelta->Fill((x-Xc)*(x-Xc) + (y-Yc)*(y-Yc) - Xc*Xc - Yc*Yc);
-			if(abs((x-Xc)*(x-Xc) + (y-Yc)*(y-Yc) - Xc*Xc - Yc*Yc - meanRsquared) < deltaRsquared && cprod.Z() >= 0) {
+			if(abs((x-Xc)*(x-Xc) + (y-Yc)*(y-Yc) - Xc*Xc - Yc*Yc - meanRsquared) < deltaRsquared) {
 				//push points in the vicinity of the circle into the vector to be excluded in the next iteration
-				trackId.push_back(tId);
-				trackX.push_back(x);
-				trackY.push_back(y);
-				trackZ.push_back(z);
+				if(Xc*Xc + Yc*Yc < 496*496 )  {
+					trackId.push_back(tId);
+					trackX.push_back(x);
+					trackY.push_back(y);
+					trackZ.push_back(z);
+				} else {
+					if(cprod.Z() > 0) {
+						trackId.push_back(tId);
+						trackX.push_back(x);
+						trackY.push_back(y);
+						trackZ.push_back(z);
+					}
+				}
+				
 			}
 		}
 	}
@@ -129,18 +135,19 @@ void ConformalMapping() {
 	std::vector<Int_t> trackId;
 	std::vector<Float_t> trackX, trackY, trackZ;
 	std::vector<Float_t> Xc, Yc;
-	const char * filename = "m01002507.root";
+	//const char * filename = "m01002507.root";
+	const char * filename = "test1.root";
 
 	Int_t counter=0;
 	Int_t prev_track_size = 0;
 	Float_t prevX, prevY;
 	Int_t conformalMappingThreshold = 50;
-//	while(counter < findTrackLimit) {
-	while(true) {
+	while(counter < findTrackLimit) {
+//	while(true) {
 		FindCenter(filename, conformalMappingThreshold, trackId, trackX, trackY, trackZ, Xc, Yc);
 		++counter;
 		if(abs(prevX-Xc[Xc.size()-1])<1 && abs(prevY-Yc[Yc.size()-1])<1) {
-			conformalMappingThreshold -= 10; 
+			conformalMappingThreshold -= 5; 
 			if(conformalMappingThreshold < 0) break;
 		}
 		prevX = Xc[Xc.size()-1];
@@ -148,23 +155,21 @@ void ConformalMapping() {
 	}
 
 	TFile *f = new TFile(filename, "READ"); //8e6 protons
-	TTree *tree = (TTree *)f->Get("tree");
+	TTree *tree = (TTree *)f->Get("cdc");
 
 	Int_t eventId;
 	TLorentzVector *position = new TLorentzVector(0., 0., 0., 0.);
-	Double_t momentumMag;
-	std::string *particleName = new std::string("");
-	tree->SetBranchAddress("eventId", &eventId);
-	tree->SetBranchAddress("position", &position);
-	tree->SetBranchAddress("momentumMag", &momentumMag);
+	Double_t E;
+	tree->SetBranchAddress("pos", &position);
+	tree->SetBranchAddress("E", &E);
 
 	TH2F *h = new TH2F("h", "h;u;v", 100, -2000, 2000, 100, -2000, 2000);
 	TH2F *circ = new TH2F("circ", "circ;x;y", 1000, -8000, 8000, 1000, -8000, 8000);
 	TH2F *found= new TH2F("found", "found;x;y", 1000, -8000, 8000, 1000, -8000, 8000);
 	for(int j=0; j < tree->GetEntries(); ++j) {
 		tree->GetEntry(j);
-		if(momentumMag < lowMomLimit) continue; 
-		if(momentumMag > highMomLimit) continue; 
+		if(E < lowMomLimit) continue; 
+		if(E > highMomLimit) continue; 
 		Float_t x = position->Z() - 7650;
 		Float_t y = position->Y();
 		if(std::find(trackX.begin(), trackX.end(), position->Z() - 7650 ) != trackX.end() && std::find(trackY.begin(), trackY.end(), position->Y() ) != trackY.end()) {
@@ -202,7 +207,6 @@ void ConformalMapping() {
 		mark->Draw("SAME");
 
 		TLatex *numbering = new TLatex(Xc[z], Yc[z], Form("%d", z) );
-		numbering->SetTextSize(20);
 		numbering->Draw("SAME");
 	}
 	c->SaveAs("results.pdf");
